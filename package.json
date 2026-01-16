@@ -1,0 +1,19 @@
+{
+  "name": "test_swe_common",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "deploy": " sh scripts/deploy.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erwanriou/test_swe_common.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "jest": "27.4.4"
+  }
+}
