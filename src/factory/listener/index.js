@@ -1,3 +1,5 @@
+const { consumerOpts, createInbox } = require("nats")
+
 class Listener {
   subject // ABSTRACT
   queueGroupName // ABSTRACT
@@ -7,56 +9,41 @@ class Listener {
     this._nats = natsWrapper
   }
 
-  streamName() {
-    return "EVENTS"
-  }
-
-  consumerConfig() {
-    return {
-      durable_name: this.queueGroupName,
-      deliver_subject: `${this.queueGroupName}.${this.subject}.deliver`,
-      ack_policy: "explicit",
-      ack_wait: this._ackWait * 1_000_000,
-      deliver_policy: "all",
-      filter_subject: this.subject
-    }
-  }
-
-  async ensureConsumer() {
-    const nc = this._nats.client()
-    const jsm = await nc.jetstreamManager()
-    const stream = this.streamName()
-    const durable = this.queueGroupName
-
-    try {
-      await jsm.consumers.info(stream, durable)
-    } catch (e) {
-      await jsm.consumers.add(stream, this.consumerConfig())
-    }
-  }
-
   parseMessage(msg) {
     return JSON.parse(Buffer.from(msg.data).toString("utf8"))
   }
 
   async listen() {
-    await this.ensureConsumer()
-
     const js = this._nats.js()
-    const sub = await js.subscribe(this.subject, { config: this.consumerConfig() })
-    this._consume(sub)
-  }
 
-  async _consume(sub) {
-    try {
-      for await (const msg of sub) {
-        console.log(`Event Received: ${msg.subject} / ${this.queueGroupName}`)
-        const data = this.parseMessage(msg)
-        await this.onMessage(data, msg)
+    // UNIQUE DURABLE PER LISTENER (REQUIRED)
+    const durableName = `${this.queueGroupName}-${this.subject}`
+
+    // CONSUMER OPTIONS (PUSH)
+    const opts = consumerOpts()
+    opts.durable(durableName)
+    opts.manualAck()
+    opts.ackWait(this._ackWait)
+    opts.deliverAll() // same behavior as your old deliverAllAvailable
+    opts.filterSubject(this.subject)
+
+    // THIS IS THE KEY: PUSH DELIVERY SUBJECT
+    opts.deliverTo(createInbox())
+
+    // THIS MAKES IT "QUEUE GROUP" LIKE (ONE INSTANCE PROCESSES EACH MSG)
+    opts.deliverGroup(this.queueGroupName)
+
+    const sub = await js.subscribe(this.subject, opts)
+
+    sub.callback((err, msg) => {
+      if (err) {
+        console.error("Listener error:", err)
+        return
       }
-    } catch (err) {
-      console.error("Listener crashed:", err)
-    }
+      console.log(`Event Received: ${msg.subject} / ${this.queueGroupName}`)
+      const data = this.parseMessage(msg)
+      this.onMessage(data, msg)
+    })
   }
 }
 
