@@ -2,6 +2,14 @@
 const { Listener } = require("./src/factory/listener")
 const { Publisher } = require("./src/factory/publisher")
 const { Subject, QueueGroupName, FixedValues } = require("./src/factory/types")
+const {
+  CustomError,
+  RequestValidationError,
+  DatabaseConnectionError,
+  NotFoundError,
+  BadRequestError,
+  NotAuthorizedError
+} = require("./src/factory/errors")
 
 // HELPERS
 const { isEmpty } = require("./src/helpers/isEmpty")
@@ -20,6 +28,12 @@ module.exports = {
   Subject,
   QueueGroupName,
   FixedValues,
+  CustomError,
+  RequestValidationError,
+  DatabaseConnectionError,
+  NotFoundError,
+  BadRequestError,
+  NotAuthorizedError,
   // HELPERS
   isEmpty,
   // MIDDLEWARES
