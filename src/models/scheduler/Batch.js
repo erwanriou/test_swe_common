@@ -18,10 +18,10 @@ const BatchSchema = new Schema(
       index: true
     },
     totals: {
-      expectedFiles: { type: Number },
-      receivedFiles: { type: Number },
-      processedFiles: { type: Number },
-      duplicateFiles: { type: Number }
+      expectedFiles: { type: Number, required: true },
+      receivedFiles: { type: Number, default: 0 },
+      processedFiles: { type: Number, default: 0 },
+      duplicateFiles: { type: Number, default: 0 }
     }
   },
   { timestamps: true }
