@@ -14,6 +14,7 @@ class Listener {
   consumerConfig() {
     return {
       durable_name: this.queueGroupName,
+      deliver_subject: `${this.queueGroupName}.${this.subject}.deliver`,
       ack_policy: "explicit",
       ack_wait: this._ackWait * 1_000_000,
       deliver_policy: "all",
