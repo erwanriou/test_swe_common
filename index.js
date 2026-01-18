@@ -11,6 +11,7 @@ const Import = (file, extention) => require(`./src/models/${extention}/${file}`)
 
 // MIDDLEWARES
 const { isAuthenticated } = require("./src/middlewares/isAuthenticated")
+const { isError } = require("./src/middlewares/isError")
 
 module.exports = {
   // FACTORY
@@ -23,6 +24,7 @@ module.exports = {
   isEmpty,
   // MIDDLEWARES
   isAuthenticated,
+  isError,
   // MODELS
   Import
 }
