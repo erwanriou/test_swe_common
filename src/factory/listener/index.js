@@ -3,8 +3,8 @@ const { AckPolicy, DeliverPolicy } = require("nats")
 class Listener {
   subject // ABSTRACT
   queueGroupName // ABSTRACT
-  _nats // PROTECTED
-  _ackWait = 30 * 1000 // PROTECTED
+  _nats
+  _ackWait = 30 * 1000
 
   constructor(natsWrapper) {
     this._nats = natsWrapper
@@ -22,20 +22,6 @@ class Listener {
     return JSON.parse(Buffer.from(msg.data).toString("utf8"))
   }
 
-  async ensureStream() {
-    const nc = this._nats.client()
-    const jsm = await nc.jetstreamManager()
-
-    try {
-      await jsm.streams.info(this.streamName())
-    } catch (e) {
-      await jsm.streams.add({
-        name: this.streamName(),
-        subjects: [">"]
-      })
-    }
-  }
-
   async ensureConsumer() {
     const nc = this._nats.client()
     const jsm = await nc.jetstreamManager()
@@ -51,7 +37,7 @@ class Listener {
     await jsm.consumers.add(stream, {
       durable_name: durable,
       ack_policy: AckPolicy.Explicit,
-      ack_wait: this._ackWait * 1_000_000, // ns
+      ack_wait: this._ackWait * 1_000_000,
       deliver_policy: DeliverPolicy.All,
       filter_subject: this.subject
     })
@@ -60,14 +46,10 @@ class Listener {
   async listen() {
     console.log(`[Listener] boot ${this.subject} / ${this.queueGroupName}`)
 
-    await this.ensureStream()
     await this.ensureConsumer()
 
     const js = this._nats.js()
-    const stream = this.streamName()
-    const durable = this.durableName()
-
-    const consumer = await js.consumers.get(stream, durable)
+    const consumer = await js.consumers.get(this.streamName(), this.durableName())
 
     for (;;) {
       const iter = await consumer.consume({ max_messages: 10, expires: 1000 })
