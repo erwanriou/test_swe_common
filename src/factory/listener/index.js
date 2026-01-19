@@ -21,21 +21,20 @@ class Listener {
     const stream = "EVENTS"
     const durable = `${this.queueGroupName}-${this.subject}`
 
-    console.log(`[Listener] boot`)
-    console.log(`[Listener] subject=${this.subject}`)
-    console.log(`[Listener] queueGroup=${this.queueGroupName}`)
-    console.log(`[Listener] durable=${durable}`)
-    console.log(`[Listener] stream=${stream}`)
+    console.log("[Listener] boot")
+    console.log("[Listener] subject =", this.subject)
+    console.log("[Listener] durable =", durable)
+    console.log("[Listener] stream  =", stream)
 
-    // ensure consumer
+    // ---- ENSURE CONSUMER ----
     try {
       const info = await jsm.consumers.info(stream, durable)
-      console.log(`[Listener] consumer exists`, {
+      console.log("[Listener] consumer exists", {
         delivered: info.delivered?.consumer_seq,
         ackFloor: info.ack_floor?.consumer_seq
       })
     } catch {
-      console.log(`[Listener] creating consumer`)
+      console.log("[Listener] creating consumer")
       await jsm.consumers.add(stream, {
         durable_name: durable,
         ack_policy: AckPolicy.Explicit,
@@ -43,35 +42,37 @@ class Listener {
         ack_wait: this._ackWait * 1_000_000,
         filter_subject: this.subject
       })
-      console.log(`[Listener] consumer created`)
+      console.log("[Listener] consumer created")
     }
 
-    console.log(`[Listener] subscribing (PULL)`)
+    // ---- IMPORTANT FIX IS HERE ----
+    console.log("[Listener] pullSubscribe bind to stream")
 
-    const sub = await js.pullSubscribe(this.subject, { durable })
-
-    ;(async () => {
-      for (;;) {
-        console.log(`[Listener] fetch…`)
-        const msgs = await sub.fetch(10, { expires: 1000 })
-
-        let count = 0
-        for (const msg of msgs) {
-          count++
-          console.log(`[Listener] msg received`, `subject=${msg.subject}`, `seq=${msg.seq}`)
-
-          const data = this.parseMessage(msg)
-          await this.onMessage(data, msg)
-          msg.ack()
-        }
-
-        if (count === 0) {
-          console.log(`[Listener] no messages`)
-        }
-      }
-    })().catch(err => {
-      console.error(`[Listener] crashed`, err)
+    const sub = await js.pullSubscribe(this.subject, {
+      durable,
+      stream // ⬅️ THIS WAS MISSING, THIS IS THE BUG
     })
+
+    // ---- FETCH LOOP ----
+    for (;;) {
+      console.log("[Listener] fetching…")
+      const msgs = await sub.fetch(10, { expires: 1000 })
+
+      let received = 0
+
+      for (const msg of msgs) {
+        received++
+        console.log("[Listener] received", "subject=", msg.subject, "seq=", msg.seq)
+
+        const data = this.parseMessage(msg)
+        await this.onMessage(data, msg)
+        msg.ack()
+      }
+
+      if (received === 0) {
+        console.log("[Listener] no messages")
+      }
+    }
   }
 }
 
