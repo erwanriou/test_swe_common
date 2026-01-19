@@ -1,50 +1,75 @@
-const { consumerOpts, createInbox } = require("nats")
+const { AckPolicy, DeliverPolicy } = require("nats")
 
+// ABSTRACT CLASS FOR LISTEN NATS EVENT (JETSTREAM - SIMPLE + WORKING)
 class Listener {
   subject // ABSTRACT
   queueGroupName // ABSTRACT
-  _ackWait = 30 * 1000
+  _nats // PROTECTED
+  _ackWait = 30 * 1000 // PROTECTED
 
   constructor(natsWrapper) {
     this._nats = natsWrapper
+  }
+
+  streamName() {
+    return "EVENTS"
   }
 
   parseMessage(msg) {
     return JSON.parse(Buffer.from(msg.data).toString("utf8"))
   }
 
+  async ensureStream() {
+    const nc = this._nats.client()
+    const jsm = await nc.jetstreamManager()
+
+    try {
+      await jsm.streams.info(this.streamName())
+      console.log(`[Listener] stream ok: ${this.streamName()}`)
+    } catch (e) {
+      await jsm.streams.add({
+        name: this.streamName(),
+        subjects: [">"]
+      })
+      console.log(`[Listener] stream created: ${this.streamName()}`)
+    }
+  }
+
   async listen() {
+    console.log(`[Listener] boot ${this.subject} / ${this.queueGroupName}`)
+
+    await this.ensureStream()
+
     const js = this._nats.js()
 
-    // UNIQUE DURABLE PER LISTENER (REQUIRED)
-    const durableName = `${this.queueGroupName}-${this.subject}`
-
-    // CONSUMER OPTIONS (PUSH)
-    const opts = consumerOpts()
-    opts.durable(durableName)
-    opts.manualAck()
-    opts.ackWait(this._ackWait)
-    opts.deliverAll()
-    opts.filterSubject(this.subject)
-
-    //PUSH DELIVERY SUBJECT
-    opts.deliverTo(createInbox())
-
-    // THIS MAKES IT "QUEUE GROUP" LIKE (ONE INSTANCE PROCESSES EACH MSG)
-    opts.deliverGroup(this.queueGroupName)
-
-    const sub = await js.subscribe(this.subject, opts)
-
-    sub.callback((err, msg) => {
-      if (err) {
-        console.error("Listener error:", err)
-        return
+    // NOTE: KEEP IT SIMPLE
+    // - durable = queueGroupName (NO ":" PROBLEM)
+    // - config is provided HERE (NO ack_policy undefined bug)
+    const sub = await js.pullSubscribe(this.subject, {
+      stream: this.streamName(),
+      durable: this.queueGroupName,
+      config: {
+        durable_name: this.queueGroupName,
+        ack_policy: AckPolicy.Explicit,
+        ack_wait: this._ackWait * 1_000_000,
+        deliver_policy: DeliverPolicy.All,
+        filter_subject: this.subject
       }
-      console.log(`Event Received: ${msg.subject} / ${this.queueGroupName}`)
-      const data = this.parseMessage(msg)
-      this.onMessage(data, msg)
     })
+
+    console.log(`[Listener] subscribed ${this.subject} durable=${this.queueGroupName}`)
+
+    for (;;) {
+      const msgs = await sub.fetch(10, { expires: 1000 })
+
+      for (const msg of msgs) {
+        console.log(`[Listener] received ${msg.subject} seq=${msg.seq}`)
+        const data = this.parseMessage(msg)
+        await this.onMessage(data, msg)
+        msg.ack()
+      }
+    }
   }
 }
 
-exports.Listener = Listener
+module.exports = { Listener }
