@@ -24,33 +24,31 @@ class Listener {
     console.log("[Listener] boot")
     console.log("[Listener] subject =", this.subject)
     console.log("[Listener] durable =", durable)
-    console.log("[Listener] stream  =", stream)
 
-    // ---- ENSURE CONSUMER ----
+    // ---- HARD RESET CONSUMER (ON PURPOSE) ----
     try {
-      const info = await jsm.consumers.info(stream, durable)
-      console.log("[Listener] consumer exists", {
-        delivered: info.delivered?.consumer_seq,
-        ackFloor: info.ack_floor?.consumer_seq
-      })
-    } catch {
-      console.log("[Listener] creating consumer")
-      await jsm.consumers.add(stream, {
-        durable_name: durable,
-        ack_policy: AckPolicy.Explicit,
-        deliver_policy: DeliverPolicy.All,
-        ack_wait: this._ackWait * 1_000_000,
-        filter_subject: this.subject
-      })
-      console.log("[Listener] consumer created")
+      await jsm.consumers.delete(stream, durable)
+      console.log("[Listener] old consumer deleted")
+    } catch (_) {
+      console.log("[Listener] no previous consumer")
     }
 
-    // ---- IMPORTANT FIX IS HERE ----
-    console.log("[Listener] pullSubscribe bind to stream")
+    // ---- CREATE *PULL* CONSUMER ----
+    await jsm.consumers.add(stream, {
+      durable_name: durable,
+      ack_policy: AckPolicy.Explicit,
+      deliver_policy: DeliverPolicy.All,
+      ack_wait: this._ackWait * 1_000_000,
+      filter_subject: this.subject
+    })
 
+    console.log("[Listener] pull consumer created")
+
+    // ---- BIND TO EXISTING CONSUMER ----
     const sub = await js.pullSubscribe(this.subject, {
       durable,
-      stream // ⬅️ THIS WAS MISSING, THIS IS THE BUG
+      stream,
+      bind: true
     })
 
     // ---- FETCH LOOP ----
@@ -58,19 +56,11 @@ class Listener {
       console.log("[Listener] fetching…")
       const msgs = await sub.fetch(10, { expires: 1000 })
 
-      let received = 0
-
       for (const msg of msgs) {
-        received++
-        console.log("[Listener] received", "subject=", msg.subject, "seq=", msg.seq)
-
+        console.log("[Listener] received", msg.subject, msg.seq)
         const data = this.parseMessage(msg)
         await this.onMessage(data, msg)
         msg.ack()
-      }
-
-      if (received === 0) {
-        console.log("[Listener] no messages")
       }
     }
   }
