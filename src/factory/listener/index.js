@@ -1,6 +1,5 @@
 const { AckPolicy, DeliverPolicy } = require("nats")
 
-// ABSTRACT CLASS FOR LISTEN NATS EVENT (JETSTREAM - SIMPLE + WORKING)
 class Listener {
   subject // ABSTRACT
   queueGroupName // ABSTRACT
@@ -15,6 +14,10 @@ class Listener {
     return "EVENTS"
   }
 
+  durableName() {
+    return `${this.queueGroupName}-${this.subject}`
+  }
+
   parseMessage(msg) {
     return JSON.parse(Buffer.from(msg.data).toString("utf8"))
   }
@@ -25,44 +28,51 @@ class Listener {
 
     try {
       await jsm.streams.info(this.streamName())
-      console.log(`[Listener] stream ok: ${this.streamName()}`)
     } catch (e) {
       await jsm.streams.add({
         name: this.streamName(),
         subjects: [">"]
       })
-      console.log(`[Listener] stream created: ${this.streamName()}`)
     }
+  }
+
+  async ensureConsumer() {
+    const nc = this._nats.client()
+    const jsm = await nc.jetstreamManager()
+
+    const stream = this.streamName()
+    const durable = this.durableName()
+
+    try {
+      await jsm.consumers.info(stream, durable)
+      return
+    } catch (e) {}
+
+    await jsm.consumers.add(stream, {
+      durable_name: durable,
+      ack_policy: AckPolicy.Explicit,
+      ack_wait: this._ackWait * 1_000_000, // ns
+      deliver_policy: DeliverPolicy.All,
+      filter_subject: this.subject
+    })
   }
 
   async listen() {
     console.log(`[Listener] boot ${this.subject} / ${this.queueGroupName}`)
 
     await this.ensureStream()
+    await this.ensureConsumer()
 
     const js = this._nats.js()
+    const stream = this.streamName()
+    const durable = this.durableName()
 
-    // NOTE: KEEP IT SIMPLE
-    // - durable = queueGroupName (NO ":" PROBLEM)
-    // - config is provided HERE (NO ack_policy undefined bug)
-    const sub = await js.pullSubscribe(this.subject, {
-      stream: this.streamName(),
-      durable: this.queueGroupName,
-      config: {
-        durable_name: this.queueGroupName,
-        ack_policy: AckPolicy.Explicit,
-        ack_wait: this._ackWait * 1_000_000,
-        deliver_policy: DeliverPolicy.All,
-        filter_subject: this.subject
-      }
-    })
-
-    console.log(`[Listener] subscribed ${this.subject} durable=${this.queueGroupName}`)
+    const consumer = await js.consumers.get(stream, durable)
 
     for (;;) {
-      const msgs = await sub.fetch(10, { expires: 1000 })
+      const iter = await consumer.consume({ max_messages: 10, expires: 1000 })
 
-      for (const msg of msgs) {
+      for await (const msg of iter) {
         console.log(`[Listener] received ${msg.subject} seq=${msg.seq}`)
         const data = this.parseMessage(msg)
         await this.onMessage(data, msg)
