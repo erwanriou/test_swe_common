@@ -51,7 +51,7 @@ const DocumentSchema = new Schema(
     },
     processStatus: {
       type: String,
-      enum: ["PENDING", "HASHING", "DONE", "FAILED"],
+      enum: ["PENDING", "DUPLICATED", "VALIDATED"],
       default: "PENDING",
       index: true
     }
