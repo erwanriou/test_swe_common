@@ -1,8 +1,8 @@
-const { consumerOpts, createInbox } = require("nats")
+const { consumerOpts } = require("nats")
 
 class Listener {
-  subject // ABSTRACT
-  queueGroupName // ABSTRACT
+  subject
+  queueGroupName
   _ackWait = 30 * 1000
 
   constructor(natsWrapper) {
@@ -16,35 +16,27 @@ class Listener {
   async listen() {
     const js = this._nats.js()
 
-    // UNIQUE DURABLE PER LISTENER (REQUIRED)
     const durableName = `${this.queueGroupName}-${this.subject}`
+    const deliverSubject = `${durableName}.deliver`
 
-    // CONSUMER OPTIONS (PUSH)
     const opts = consumerOpts()
     opts.durable(durableName)
+    opts.deliverTo(deliverSubject)
+    opts.deliverGroup(this.queueGroupName)
     opts.manualAck()
     opts.ackWait(this._ackWait)
-    opts.deliverAll() // same behavior as your old deliverAllAvailable
+    opts.deliverAll()
     opts.filterSubject(this.subject)
-
-    // THIS IS THE KEY: PUSH DELIVERY SUBJECT
-    opts.deliverTo(createInbox())
-
-    // THIS MAKES IT "QUEUE GROUP" LIKE (ONE INSTANCE PROCESSES EACH MSG)
-    opts.deliverGroup(this.queueGroupName)
 
     const sub = await js.subscribe(this.subject, opts)
 
-    sub.callback((err, msg) => {
-      if (err) {
-        console.error("Listener error:", err)
-        return
-      }
-      console.log(`Event Received: ${msg.subject} / ${this.queueGroupName}`)
+    sub.callback(async (err, msg) => {
+      if (err) return
       const data = this.parseMessage(msg)
-      this.onMessage(data, msg)
+      await this.onMessage(data, msg)
+      msg.ack()
     })
   }
 }
 
-exports.Listener = Listener
+module.exports = { Listener }
